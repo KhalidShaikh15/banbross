@@ -1,0 +1,214 @@
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { db } from "@/lib/firebase";
+import {
+  collection,
+  onSnapshot,
+  query,
+  where,
+  updateDoc,
+  doc,
+} from "firebase/firestore";
+import { Button } from "@/components/ui/button";
+
+const Admin = () => {
+  const [subscribers, setSubscribers] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // ✅ FETCH PENDING USERS
+  useEffect(() => {
+    const q = query(
+      collection(db, "submissions"),
+      where("status", "==", "pending")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setSubscribers(data);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // ✅ FETCH ALL USERS
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, "submissions"), (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setAllUsers(data);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // ✅ STATS
+  const totalUsers = allUsers.length;
+  const approved = allUsers.filter((u) => u.status === "approved").length;
+  const pending = allUsers.filter((u) => u.status === "pending").length;
+
+  const basicPlan = allUsers.filter((u) => u.plan === "basic").length;
+  const premiumPlan = allUsers.filter((u) => u.plan === "premium").length;
+
+  // ✅ TOTAL REVENUE
+  const totalRevenue = allUsers
+  .filter((u) => u.status === "approved")
+  .reduce((sum, u) => sum + (u.amount || 0), 0);
+
+  // ✅ UPDATE STATUS
+  const updateStatus = async (user: any, status: string) => {
+    const confirmAction = window.confirm(
+      `Are you sure you want to ${status} this user?`
+    );
+
+    if (!confirmAction) return;
+
+    const ref = doc(db, "submissions", user.id);
+    await updateDoc(ref, { status });
+
+    if (status === "approved") {
+      try {
+        await fetch("http://localhost:5000/send-receipt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: user.name,
+            email: user.email,
+            plan: user.plan,
+            amount: user.amount,
+          }),
+        });
+      } catch (error) {
+        console.error("Email failed:", error);
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        Loading...
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background px-6 py-10">
+
+      <div className="max-w-6xl mx-auto">
+
+        <h1 className="text-3xl font-bold mb-8 text-center">
+          Admin Dashboard
+        </h1>
+        {/* ✅ ADD BUTTON HERE */}
+<div className="flex justify-end mb-4">
+  <Link to="/admin/users">
+    <button className="px-4 py-2 bg-primary text-white rounded-xl">
+      View Approved Users
+    </button>
+  </Link>
+</div>
+
+{/* STATS */}
+<div className="max-w-5xl mx-auto"></div>
+        {/* 🔥 STATS CARDS */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
+
+          <div className="p-6 bg-card border rounded-2xl text-center shadow-sm hover:shadow-xl transition-all duration-300" >
+            <p className="text-sm text-muted-foreground">Total Users</p>
+            <p className="text-2xl font-bold">{totalUsers}</p>
+          </div>
+
+          <div className="p-6 bg-card border rounded-2xl text-center shadow-sm hover:shadow-xl transition-all duration-300" >
+            <p className="text-sm text-muted-foreground">Approved</p>
+            <p className="text-2xl font-bold text-green-600">{approved}</p>
+          </div>
+
+          <div className="p-6 bg-card border rounded-2xl text-center shadow-sm hover:shadow-xl transition-all duration-300" >
+            <p className="text-sm text-muted-foreground">Pending</p>
+            <p className="text-2xl font-bold text-yellow-600">{pending}</p>
+          </div>
+
+         
+
+          {/* 💰 TOTAL REVENUE */}
+          <div className="p-5 bg-primary/10 border border-primary rounded-2xl text-center shadow-sm">
+            <p className="text-sm text-muted-foreground">Total Revenue</p>
+            <p className="text-2xl font-bold text-primary">
+              ₹{totalRevenue}
+            </p>
+          </div>
+
+        </div>
+
+        {/* 🔥 TABLE */}
+        <div className="overflow-x-auto">
+  <table className="w-full text-sm">
+
+            <thead className="bg-muted">
+              <tr>
+                <th className="p-3 text-left">Name</th>
+                <th className="p-3 text-left">Email</th>
+                <th className="p-3 text-left">Plan</th>
+                <th className="p-3 text-left">Qty</th>
+                <th className="p-3 text-left">Amount</th>
+                <th className="p-3 text-center">Action</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {subscribers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="text-center p-6 text-muted-foreground">
+                    No pending requests 🎉
+                  </td>
+                </tr>
+              ) : (
+                subscribers.map((s) => (
+                  <tr key={s.id} className="border-t hover:bg-muted/40 transition">
+
+                    <td className="p-3 font-medium">{s.name}</td>
+                    <td className="p-3">{s.email}</td>
+                    <td className="p-3 capitalize">{s.plan}</td>
+                    <td className="p-3">{s.quantity || 1}</td>
+                    <td className="p-3 font-semibold text-primary">
+                      ₹{s.amount}
+                    </td>
+
+                    <td className="p-3 text-center space-x-2">
+                      <Button
+                        onClick={() => updateStatus(s, "approved")}
+                        className="bg-green-500 hover:bg-green-600"
+                      >
+                        Approve
+                      </Button>
+
+                      <Button
+                        onClick={() => updateStatus(s, "rejected")}
+                        variant="destructive"
+                      >
+                        Reject
+                      </Button>
+                    </td>
+
+                  </tr>
+                ))
+              )}
+            </tbody>
+
+          </table>
+
+        </div>
+
+      </div>
+    </div>
+  );
+};
+
+export default Admin;
